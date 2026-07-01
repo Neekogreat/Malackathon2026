@@ -1,15 +1,9 @@
 # Malackathon2026
 ## 🚀 Inicio Rápido con Docker
 
-Usa la imagen oficial de Docker llamada mongo. Docker Hub la marca como imagen oficial de MongoDB.
+Levanta los dos modelos en Ollama y la base de datos en Mongo en segundo plano (detached)
 ```bash
-docker pull mongo
-```
-
-Puedes ejecutar esta instancia de MongoDB localmente usando Docker. Ejecuta el siguiente comando en tu terminal:
-
-```bash
-docker run -d --name mongodb-proxy -p 27017:27017 -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=admin123 -v mongodb_data:/data/db mongo
+docker compose up -d
 ```
 
 Para comprobar si el contenedor se está ejecutando correctamente, utiliza: 
