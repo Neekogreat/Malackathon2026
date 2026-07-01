@@ -22,6 +22,7 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/", proxyRoutes);
+
 app.use("/api", apiRoutes);
 
 const PORT = process.env.PORT || 3000;
