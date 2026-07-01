@@ -50,5 +50,10 @@ const AiRequestSchema = new mongoose.Schema(
   }
 );
 
+AiRequestSchema.index({ consumer_id: 1, createdAt: -1 });
+AiRequestSchema.index({ provider_id: 1, createdAt: -1 });
+AiRequestSchema.index({ model: 1, createdAt: -1 });
+AiRequestSchema.index({ status: 1, createdAt: -1 });
+
 module.exports = mongoose.model("AiRequest", AiRequestSchema);
 
