@@ -21,7 +21,19 @@ console.log("CONSUMER ID RECIBIDO:", consumerId);
       error: "Falta el header X-Consumer-ID"
     });
   }
+  // VALIDACIÓN DEL BODY (messages)
+  const messages = req.body?.messages;
 
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({
+      error: "Body inválido: 'messages' debe ser un array no vacío",
+      example: {
+        messages: [
+          { role: "user", content: "Resume qué es AI FinOps en una frase" }
+        ]
+      }
+    });
+  }
   try {
     const consumer = await Consumer.findById(consumerId);
 
@@ -120,6 +132,46 @@ let reason = routingDecision.reason;
 
     const providerResult = await callProvider(provider, req.body);
 
+    // Si el proveedor falla, registramos petición con status "error" y coste 0
+    if (!providerResult.success) {
+      await AiRequest.create({
+        consumer_id: consumerId,
+        provider_id: provider._id,
+        provider_name: provider.name,
+        model: provider.model,
+        status: "error",
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0
+        },
+        cost: {
+          total_cost: 0,
+          input_cost: 0,
+          output_cost: 0,
+          currency: "USD"
+        },
+        budget: {
+          spend_before: budgetStatus.currentSpend,
+          spend_after: budgetStatus.currentSpend,
+          budget_limit: budgetStatus.budgetLimit,
+          budget_percentage_after: budgetStatus.percentage * 100
+        },
+        analysis: routingDecision.analysis,
+        routing: {
+          strategy: strategy,
+          reason: `Error llamando al proveedor: ${providerResult.error}`,
+          selected_provider_id: selectedProviderId
+        },
+        latency_ms: providerResult.latencyMs
+      });
+
+      return res.status(502).json({
+        error: "Provider error",
+        provider: provider.name,
+        details: providerResult.error
+      });
+    }
     const usage = providerResult.data.usage || {
       prompt_tokens: 0,
       completion_tokens: 0,

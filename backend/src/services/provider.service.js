@@ -10,18 +10,35 @@ async function callProvider(provider, originalBody) {
 
   const start = Date.now();
 
-  const response = await axios.post(url, body, {
-    headers: {
-      "Content-Type": "application/json"
-    }
-  });
+  try {
+    const response = await axios.post(url, body, {
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
 
-  const latencyMs = Date.now() - start;
+    const latencyMs = Date.now() - start;
 
-  return {
-    data: response.data,
-    latencyMs
-  };
+    return {
+      success: true,
+      data: response.data,
+      latencyMs
+    };
+  } catch (error) {
+    const latencyMs = Date.now() - start;
+
+    console.error("[Provider error]", {
+      provider: provider.name,
+      url,
+      message: error.message
+    });
+
+    return {
+      success: false,
+      error: error.message,
+      latencyMs
+    };
+  }
 }
 
 module.exports = {
