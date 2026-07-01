@@ -1,6 +1,11 @@
 # Malackathon2026
 ## 🚀 Inicio Rápido con Docker
 
+Usa la imagen oficial de Docker llamada mongo. Docker Hub la marca como imagen oficial de MongoDB.
+```bash
+docker pull mongo
+```
+
 Puedes ejecutar esta instancia de MongoDB localmente usando Docker. Ejecuta el siguiente comando en tu terminal:
 
 ```bash
