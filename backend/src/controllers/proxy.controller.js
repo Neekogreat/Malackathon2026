@@ -69,7 +69,7 @@ console.log("CONSUMER ID RECIBIDO:", consumerId);
       });
     }
 
-    const routingDecision = chooseProvider({
+    const routingDecision = await chooseProvider({
   consumer,
   budgetStatus,
   messages: req.body.messages || []
@@ -157,7 +157,9 @@ let reason = routingDecision.reason;
 routing: {
   strategy,
   reason,
-  selected_provider_id: selectedProviderId
+  selected_provider_id: selectedProviderId,
+  scoring: routingDecision.scoring || [],
+  cheapest_alternative: routingDecision.cheapest_alternative || null
 },
       latency_ms: providerResult.latencyMs
     });
