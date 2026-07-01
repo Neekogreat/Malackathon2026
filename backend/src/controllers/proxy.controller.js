@@ -201,34 +201,34 @@ if (isCacheableRequest(req.body)) {
     });
 
     return res.json({
-      ...cached.response_data,
-      finops: {
-        consumer_id: consumerId,
-        provider: provider.name,
-        model: provider.model,
-        strategy: "cache_hit",
-        reason: "Respuesta servida desde caché porque la petición completa ya existía.",
-        analysis: routingDecision.analysis,
-        scoring: routingDecision.scoring || [],
-        cheapest_alternative: routingDecision.cheapest_alternative || null,
-        cache: {
-          hit: true,
-          cache_key: cacheKey,
-          estimated_saving: estimatedSaving
-        },
-        cost: {
-          input_cost: 0,
-          output_cost: 0,
-          total_cost: 0
-        },
-        budget: {
-          spend_before: budgetStatus.currentSpend,
-          spend_after: budgetStatus.currentSpend,
-          budget_limit: budgetStatus.budgetLimit,
-          budget_percentage_after: budgetStatus.percentage * 100
-        }
-      }
-    });
+  ...cached.response_data,
+  finops: {
+    consumer_id: consumerId,
+    provider: provider.name,
+    model: provider.model,
+    strategy: "cache_hit",
+    reason: "Respuesta servida desde caché porque la petición completa ya existía.",
+    analysis: routingDecision.analysis,
+    scoring: routingDecision.scoring || [],
+    cheapest_alternative: routingDecision.cheapest_alternative || null,
+    cache: {
+      hit: true,
+      cache_key: cacheKey,
+      estimated_saving: estimatedSaving
+    },
+    cost: {
+      input_cost: 0,
+      output_cost: 0,
+      total_cost: 0
+    },
+    budget: {
+      spend_before: budgetStatus.currentSpend,
+      spend_after: budgetStatus.currentSpend,
+      budget_limit: budgetStatus.budgetLimit,
+      budget_percentage_after: budgetStatus.percentage * 100
+    }
+  }
+});
   }
 }
 
