@@ -38,6 +38,14 @@ services:
       retries: 10
       start_period: 30s
 
+  ollama-analyzer-qwen:
+    image: ollama/ollama:latest
+    container_name: ollama-analyzer-qwen
+    ports:
+      - "11436:11434"
+    volumes:
+      - ollama-analyzer-qwen:/root/.ollama
+
   mongo:
     image: mongo:7
     container_name: ai-finops-mongo
@@ -51,6 +59,7 @@ services:
 volumes:
   ollama_provider_a:
   ollama_provider_b:
+  ollama-analyzer-qwen:
   mongo_data:
 
 
