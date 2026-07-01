@@ -3,6 +3,7 @@ const router = express.Router();
 
 const {
   getOverview,
+  getForecast,
   getRequests,
   getConsumers,
   getAlerts,
@@ -11,6 +12,7 @@ const {
 } = require("../controllers/dashboard.controller");
 
 router.get("/dashboard/overview", getOverview);
+router.get("/dashboard/forecast", getForecast);
 router.get("/requests", getRequests);
 router.get("/consumers", getConsumers);
 router.get("/alerts", getAlerts);
