@@ -5,6 +5,7 @@ const cors = require("cors");
 const connectDB = require("./config/db");
 
 const proxyRoutes = require("./routes/proxy.routes");
+const apiRoutes = require("./routes/api.routes");
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/", proxyRoutes);
+app.use("/api", apiRoutes);
 
 const PORT = process.env.PORT || 3000;
 
