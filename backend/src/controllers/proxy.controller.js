@@ -175,13 +175,15 @@ routing: {
 
     return res.json({
       ...providerResult.data,
-      finops: {
+     finops: {
   consumer_id: consumerId,
   provider: provider.name,
   model: provider.model,
   strategy,
   reason,
   analysis: routingDecision.analysis,
+  scoring: routingDecision.scoring || [],
+  cheapest_alternative: routingDecision.cheapest_alternative || null,
   cost,
   budget: {
     spend_before: budgetStatus.currentSpend,
