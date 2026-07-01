@@ -10,6 +10,13 @@ const {
   createBudgetAlertIfNeeded
 } = require("../services/budget.service");
 
+const {
+  isCacheableRequest,
+  buildCacheKey,
+  getCachedResponse,
+  saveResponseToCache
+} = require("../services/cache.service");
+
 async function chatCompletions(req, res) {
   const consumerId = req.header("X-Consumer-ID");
 
@@ -124,13 +131,108 @@ let reason = routingDecision.reason;
 
     const provider = await Provider.findById(selectedProviderId);
 
-    if (!provider) {
-      return res.status(500).json({
-        error: "Proveedor no encontrado"
-      });
-    }
+if (!provider) {
+  return res.status(500).json({
+    error: "Proveedor no encontrado"
+  });
+}
 
-    const providerResult = await callProvider(provider, req.body);
+// ===============================
+// CACHE CHECKER
+// ===============================
+let cacheKey = null;
+
+if (isCacheableRequest(req.body)) {
+  cacheKey = buildCacheKey({
+    consumerId,
+    providerId: provider._id,
+    model: provider.model,
+    body: req.body
+  });
+
+  const cached = await getCachedResponse(cacheKey);
+
+  if (cached) {
+    const estimatedSaving = cached.original_cost?.total_cost || 0;
+
+    await AiRequest.create({
+      consumer_id: consumerId,
+      provider_id: provider._id,
+      provider_name: provider.name,
+      model: provider.model,
+      status: "cache_hit",
+
+      usage: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0
+      },
+
+      cost: {
+        input_cost: 0,
+        output_cost: 0,
+        total_cost: 0
+      },
+
+      budget: {
+        spend_before: budgetStatus.currentSpend,
+        spend_after: budgetStatus.currentSpend,
+        budget_limit: budgetStatus.budgetLimit,
+        budget_percentage_after: budgetStatus.percentage * 100
+      },
+
+      analysis: routingDecision.analysis,
+
+      routing: {
+        strategy: "cache_hit",
+        reason: "Misma petición exacta encontrada en caché. Coste 0.",
+        selected_provider_id: selectedProviderId,
+        scoring: routingDecision.scoring || [],
+        cheapest_alternative: routingDecision.cheapest_alternative || null
+      },
+
+      cache: {
+        hit: true,
+        cache_key: cacheKey,
+        estimated_saving: estimatedSaving
+      },
+
+      latency_ms: 0
+    });
+
+    return res.json({
+      ...cached.response_data,
+      finops: {
+        consumer_id: consumerId,
+        provider: provider.name,
+        model: provider.model,
+        strategy: "cache_hit",
+        reason: "Respuesta servida desde caché porque la petición completa ya existía.",
+        analysis: routingDecision.analysis,
+        scoring: routingDecision.scoring || [],
+        cheapest_alternative: routingDecision.cheapest_alternative || null,
+        cache: {
+          hit: true,
+          cache_key: cacheKey,
+          estimated_saving: estimatedSaving
+        },
+        cost: {
+          input_cost: 0,
+          output_cost: 0,
+          total_cost: 0
+        },
+        budget: {
+          spend_before: budgetStatus.currentSpend,
+          spend_after: budgetStatus.currentSpend,
+          budget_limit: budgetStatus.budgetLimit,
+          budget_percentage_after: budgetStatus.percentage * 100
+        }
+      }
+    });
+  }
+}
+
+const providerResult = await callProvider(provider, req.body);
 
     // Si el proveedor falla, registramos petición con status "error" y coste 0
     if (!providerResult.success) {
@@ -179,6 +281,18 @@ let reason = routingDecision.reason;
     };
 
     const cost = calculateCost(provider, usage);
+
+    if (cacheKey) {
+  await saveResponseToCache({
+    cacheKey,
+    consumerId,
+    provider,
+    body: req.body,
+    responseData: providerResult.data,
+    usage,
+    cost
+  });
+}
 
     const spendAfter = budgetStatus.currentSpend + cost.total_cost;
     const budgetPercentageAfter = spendAfter / budgetStatus.budgetLimit;

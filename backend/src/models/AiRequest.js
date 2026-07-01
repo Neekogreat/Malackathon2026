@@ -37,6 +37,18 @@ const AiRequestSchema = new mongoose.Schema(
       default: {}
     },
 
+    cache: {
+  hit: {
+    type: Boolean,
+    default: false
+  },
+  cache_key: String,
+  estimated_saving: {
+    type: Number,
+    default: 0
+  }
+},
+
     quality_evaluation: {
       type: Object,
       default: {}
