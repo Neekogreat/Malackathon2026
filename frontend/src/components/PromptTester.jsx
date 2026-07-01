@@ -1,8 +1,18 @@
 import { useState } from "react";
-import { Send, Loader2, Brain, Route, ShieldCheck } from "lucide-react";
+import { Send, Loader2, Brain, Route, ShieldCheck, DollarSign } from "lucide-react";
 import PanelTitle from "./PanelTitle";
 
-const API_URL = "http://localhost:3000/v1/chat/completions";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_URL = `${API_BASE_URL}/v1/chat/completions`;
+
+function formatCost(value) {
+  if (value === undefined || value === null) return "-";
+  return `$${Number(value).toFixed(8)}`;
+}
+
+function getAssistantContent(response) {
+  return response?.choices?.[0]?.message?.content || "";
+}
 
 function PromptTester() {
   const [consumerId, setConsumerId] = useState("equipo-marketing");
@@ -54,6 +64,12 @@ function PromptTester() {
     }
   }
 
+  const finops = backendResponse?.finops;
+  const analysis = finops?.analysis;
+  const mainTask = analysis?.primary_task_type || analysis?.task_types?.[0]?.type || "-";
+  const confidence = analysis?.task_types?.[0]?.confidence;
+  const assistantContent = getAssistantContent(backendResponse);
+
   return (
     <section className="panel prompt-tester">
       <PanelTitle
@@ -72,7 +88,6 @@ function PromptTester() {
             >
               <option value="equipo-marketing">equipo-marketing</option>
               <option value="equipo-producto">equipo-producto</option>
-              <option value="equipo-soporte">equipo-soporte</option>
             </select>
           </label>
         </div>
@@ -82,7 +97,7 @@ function PromptTester() {
           <textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
-            placeholder="Ejemplo: Analiza este documento, resume los puntos importantes y genera código en Node.js."
+            placeholder="Ejemplo: Resume qué es AI FinOps en una frase."
             rows={6}
           />
         </label>
@@ -111,14 +126,12 @@ function PromptTester() {
           <div className="result-grid">
             <div className="result-card">
               <Brain size={18} />
-              <span>Category</span>
-              <strong>
-                {backendResponse.classification?.mainCategory || "-"}
-              </strong>
+              <span>Task category</span>
+              <strong>{mainTask}</strong>
               <small>
                 Confidence:{" "}
-                {backendResponse.classification?.confidence !== undefined
-                  ? `${Math.round(backendResponse.classification.confidence * 100)}%`
+                {confidence !== undefined
+                  ? `${Math.round(confidence * 100)}%`
                   : "-"}
               </small>
             </div>
@@ -126,54 +139,46 @@ function PromptTester() {
             <div className="result-card">
               <Route size={18} />
               <span>Selected provider</span>
-              <strong>
-                {backendResponse.selectedProvider?.name || "-"}
-              </strong>
-              <small>
-                {backendResponse.selectedProvider?.model || "-"} ·{" "}
-                {backendResponse.selectedProvider?.tier || "-"}
-              </small>
+              <strong>{finops?.provider || "-"}</strong>
+              <small>{finops?.model || "-"}</small>
             </div>
 
             <div className="result-card">
               <ShieldCheck size={18} />
-              <span>Complexity</span>
-              <strong>
-                {backendResponse.complexity?.complexityLevel || "-"}
-              </strong>
+              <span>Risk / Complexity</span>
+              <strong>{analysis?.risk_level || "-"}</strong>
+              <small>Complexity: {analysis?.complexity || "-"}</small>
+            </div>
+
+            <div className="result-card">
+              <DollarSign size={18} />
+              <span>Estimated real cost</span>
+              <strong>{formatCost(finops?.cost?.total_cost)}</strong>
               <small>
-                Score: {backendResponse.complexity?.finalScore ?? "-"}
+                Budget used:{" "}
+                {finops?.budget?.budget_percentage_after !== undefined
+                  ? `${Number(finops.budget.budget_percentage_after).toFixed(2)}%`
+                  : "-"}
               </small>
             </div>
           </div>
 
-          {backendResponse.classification?.tasks?.length > 0 && (
-            <div className="tasks-box">
-              <h5>Detected tasks</h5>
-
-              {backendResponse.classification.tasks.map((task, index) => (
-                <div className="task-item" key={`${task.category}-${index}`}>
-                  <div>
-                    <strong>{task.category}</strong>
-                    <p>{task.reason}</p>
-                  </div>
-
-                  <div className="task-meta">
-                    <span>{task.complexity}</span>
-                    <small>
-                      score {task.complexityScore} ·{" "}
-                      {Math.round(task.confidence * 100)}%
-                    </small>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="routing-box">
+            <strong>Routing strategy</strong>
+            <p>{finops?.strategy || "-"}</p>
+          </div>
 
           <div className="routing-box">
             <strong>Routing reason</strong>
-            <p>{backendResponse.routingReason}</p>
+            <p>{finops?.reason || "-"}</p>
           </div>
+
+          {assistantContent && (
+            <div className="routing-box">
+              <strong>AI response</strong>
+              <p>{assistantContent}</p>
+            </div>
+          )}
 
           <details className="raw-json">
             <summary>Show raw backend response</summary>
