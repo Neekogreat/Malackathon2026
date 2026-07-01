@@ -202,25 +202,50 @@ if (isCacheableRequest(req.body)) {
 
     return res.json({
   ...cached.response_data,
+
+  usage: {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0
+  },
+
   finops: {
     consumer_id: consumerId,
     provider: provider.name,
     model: provider.model,
     strategy: "cache_hit",
     reason: "Respuesta servida desde caché porque la petición completa ya existía.",
+
     analysis: routingDecision.analysis,
+
     scoring: routingDecision.scoring || [],
+
     cheapest_alternative: routingDecision.cheapest_alternative || null,
+
     cache: {
       hit: true,
       cache_key: cacheKey,
-      estimated_saving: estimatedSaving
+      estimated_saving: estimatedSaving,
+
+      original_usage: cached.original_usage || {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0
+      },
+
+      original_cost: cached.original_cost || {
+        input_cost: 0,
+        output_cost: 0,
+        total_cost: 0
+      }
     },
+
     cost: {
       input_cost: 0,
       output_cost: 0,
       total_cost: 0
     },
+
     budget: {
       spend_before: budgetStatus.currentSpend,
       spend_after: budgetStatus.currentSpend,
