@@ -1,12 +1,19 @@
 import { Coins, Gauge, PiggyBank, ShieldAlert } from "lucide-react";
 import KpiCard from "./KpiCard";
-import { formatCurrency, getTotalCost, getTotalSavings, getTotalTokens } from "../utils";
+import {
+  formatCurrency,
+  getTotalCost,
+  getTotalSavings,
+  getTotalTokens
+} from "../utils";
 
-function KpiCards({ requests }) {
-  const totalCost = getTotalCost(requests);
-  const totalTokens = getTotalTokens(requests);
+function KpiCards({ requests, overview }) {
+  const totalCost = overview?.total_spend ?? getTotalCost(requests);
+  const totalTokens = overview?.total_tokens ?? getTotalTokens(requests);
   const totalSavings = getTotalSavings(requests);
-  const blockedRequests = requests.filter((req) => req.status === "blocked").length;
+  const blockedRequests =
+    overview?.blocked_requests ??
+    requests.filter((req) => req.status === "blocked").length;
 
   return (
     <section className="kpi-grid">
@@ -14,13 +21,13 @@ function KpiCards({ requests }) {
         icon={<Coins />}
         title="Total cost"
         value={formatCurrency(totalCost)}
-        detail="Estimated AI spend"
+        detail="Real AI spend"
       />
 
       <KpiCard
         icon={<Gauge />}
         title="Total tokens"
-        value={totalTokens.toLocaleString()}
+        value={Number(totalTokens || 0).toLocaleString()}
         detail="Input + output tokens"
       />
 
