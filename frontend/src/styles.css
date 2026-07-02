@@ -17,77 +17,65 @@ textarea {
 }
 
 .app {
-  display: flex;
   min-height: 100vh;
 }
 
-/* =========================
-   SIDEBAR
-========================= */
-
-.sidebar {
-  width: 260px;
-  background: #111827;
-  color: white;
-  padding: 24px;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-}
-
-.sidebar-logo {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 36px;
-}
-
-.sidebar-logo h1 {
-  margin: 0;
-  font-size: 20px;
-}
-
-.sidebar-logo span {
-  color: #9ca3af;
-  font-size: 13px;
-}
-
-.sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sidebar-nav a {
-  padding: 12px 14px;
-  border-radius: 8px;
-  color: #d1d5db;
-  cursor: pointer;
-  font-size: 14px;
-  text-decoration: none;
-}
-
-.sidebar-nav a.active,
-.sidebar-nav a:hover {
-  background: #374151;
-  color: white;
-}
 
 /* =========================
    MAIN
 ========================= */
 
 .main {
-  flex: 1;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
   padding: 28px;
   overflow-x: hidden;
 }
 
 .topbar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 28px;
   margin-bottom: 24px;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #111827;
+  color: white;
+  padding: 14px 18px;
+  border-radius: 14px;
+  min-width: 230px;
+}
+
+.header-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-brand h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.header-brand span {
+  display: block;
+  margin-top: 5px;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.header-title {
+  min-width: 0;
 }
 
 .eyebrow {
@@ -916,9 +904,10 @@ tr:hover td {
 }
 
 @media (max-width: 850px) {
-  .sidebar {
-    display: none;
-  }
+
+  .header-brand {
+  width: 100%;
+}
 
   .main {
     padding: 18px;
@@ -950,4 +939,42 @@ tr:hover td {
   .task-meta {
     align-items: flex-start;
   }
+}
+
+.audit-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.audit-toggle {
+  width: 100%;
+  border: none;
+  background: white;
+  padding: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+
+.audit-toggle:hover {
+  background: #f9fafb;
+}
+
+.audit-toggle-title .panel-title {
+  margin-bottom: 0;
+}
+
+.audit-toggle-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #d97706;
+  font-weight: 700;
+}
+
+.audit-table-wrapper {
+  border-top: 1px solid #e5e7eb;
+  padding: 0 18px 18px;
 }

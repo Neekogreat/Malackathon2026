@@ -1,17 +1,23 @@
-import { Zap } from "lucide-react";
+import { Brain } from "lucide-react";
 
 function Header() {
   return (
     <header className="topbar">
-      <div>
+      <div className="header-brand">
+        <div className="header-logo">
+          <Brain size={28} />
+        </div>
+
+        <div>
+          <h1>AI FinOps</h1>
+          <span>Proxy Dashboard</span>
+        </div>
+      </div>
+
+      <div className="header-title">
         <p className="eyebrow">Cost Explorer</p>
         <h2>AI usage and cost overview</h2>
       </div>
-
-      <button className="primary-button">
-        <Zap size={16} />
-        Run live demo request
-      </button>
     </header>
   );
 }

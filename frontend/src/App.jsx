@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import Sidebar from "./components/Sidebar";
+
 import Header from "./components/Header";
 import FiltersBar from "./components/FiltersBar";
 import PromptTester from "./components/PromptTester";
@@ -124,10 +124,8 @@ function App() {
   }, [requests, search, selectedConsumer, selectedProvider, selectedCategory]);
 
   return (
-    <div className="app">
-      <Sidebar />
-
-      <main className="main">
+  <div className="app">
+    <main className="main">
         <Header />
 
         <FiltersBar
