@@ -11,10 +11,23 @@ async function callProvider(provider, originalBody) {
   const start = Date.now();
 
   try {
-    const response = await axios.post(url, body, {
-  headers: {
-    "Content-Type": "application/json"
-  },
+    const apiKeyByProviderId = {
+  "provider-a": process.env.PROVIDER_A_API_KEY,
+  "provider-b": process.env.PROVIDER_B_API_KEY
+};
+
+const apiKey = apiKeyByProviderId[String(provider._id)];
+
+const headers = {
+  "Content-Type": "application/json"
+};
+
+if (apiKey) {
+  headers.Authorization = `Bearer ${apiKey}`;
+}
+
+const response = await axios.post(url, body, {
+  headers,
   timeout: 120000
 });
 
