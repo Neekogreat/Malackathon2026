@@ -105,3 +105,7 @@ export function mapBackendAlert(alert) {
     message: alert.message || "Alerta sin mensaje"
   };
 }
+
+export async function getForecast() {
+  return requestJson("/api/dashboard/forecast?lookbackDays=14&horizonDays=30");
+}
