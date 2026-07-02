@@ -12,10 +12,11 @@ async function callProvider(provider, originalBody) {
 
   try {
     const response = await axios.post(url, body, {
-      headers: {
-        "Content-Type": "application/json"
-      }
-    });
+  headers: {
+    "Content-Type": "application/json"
+  },
+  timeout: 120000
+});
 
     const latencyMs = Date.now() - start;
 

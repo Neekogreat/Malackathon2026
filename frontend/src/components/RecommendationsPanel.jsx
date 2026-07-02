@@ -17,7 +17,7 @@ function getSeverityIcon(severity) {
   return <Info size={16} />;
 }
 
-function RecommendationsPanel() {
+function RecommendationsPanel({refreshKey}) {
   const [recommendationsData, setRecommendationsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -49,7 +49,7 @@ function RecommendationsPanel() {
 
   useEffect(() => {
     loadRecommendations();
-  }, []);
+  }, [refreshKey]);
 
   if (loading) {
     return (

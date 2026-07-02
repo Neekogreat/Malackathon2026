@@ -5,10 +5,16 @@ const { chooseProvider } = require("../services/routing.service");
 
 const { callProvider } = require("../services/provider.service");
 const { calculateCost } = require("../services/cost.service");
+
+const {
+  evaluateResponseQuality
+} = require("../services/quality.service");
+
 const {
   getBudgetStatus,
   createBudgetAlertIfNeeded
 } = require("../services/budget.service");
+
 
 const {
   isCacheableRequest,
@@ -129,7 +135,7 @@ let selectedProviderId = routingDecision.selected_provider_id;
 let strategy = routingDecision.strategy;
 let reason = routingDecision.reason;
 
-    const provider = await Provider.findById(selectedProviderId);
+    let provider = await Provider.findById(selectedProviderId);
 
 if (!provider) {
   return res.status(500).json({
@@ -197,6 +203,13 @@ if (isCacheableRequest(req.body)) {
         estimated_saving: estimatedSaving
       },
 
+      quality_evaluation: {
+  score: null,
+  label: "cached",
+  method: "cache_reuse",
+  reason: "Respuesta servida desde caché; no se reevalúa calidad porque no se ha llamado al proveedor."
+},
+
       latency_ms: 0
     });
 
@@ -217,6 +230,13 @@ if (isCacheableRequest(req.body)) {
     reason: "Respuesta servida desde caché porque la petición completa ya existía.",
 
     analysis: routingDecision.analysis,
+
+    quality_evaluation: {
+  score: null,
+  label: "cached",
+  method: "cache_reuse",
+  reason: "Respuesta servida desde caché; no se reevalúa calidad porque no se ha llamado al proveedor."
+},
 
     scoring: routingDecision.scoring || [],
 
@@ -257,48 +277,146 @@ if (isCacheableRequest(req.body)) {
   }
 }
 
-const providerResult = await callProvider(provider, req.body);
+let providerResult = await callProvider(provider, req.body);
 
-    // Si el proveedor falla, registramos petición con status "error" y coste 0
-    if (!providerResult.success) {
-      await AiRequest.create({
-        consumer_id: consumerId,
-        provider_id: provider._id,
-        provider_name: provider.name,
-        model: provider.model,
-        status: "error",
-        usage: {
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_tokens: 0
-        },
-        cost: {
-          total_cost: 0,
-          input_cost: 0,
-          output_cost: 0,
-          currency: "USD"
-        },
-        budget: {
-          spend_before: budgetStatus.currentSpend,
-          spend_after: budgetStatus.currentSpend,
-          budget_limit: budgetStatus.budgetLimit,
-          budget_percentage_after: budgetStatus.percentage * 100
-        },
-        analysis: routingDecision.analysis,
-        routing: {
-          strategy: strategy,
-          reason: `Error llamando al proveedor: ${providerResult.error}`,
-          selected_provider_id: selectedProviderId
-        },
-        latency_ms: providerResult.latencyMs
-      });
+let usedFallback = false;
+let fallbackFrom = null;
 
-      return res.status(502).json({
-        error: "Provider error",
-        provider: provider.name,
-        details: providerResult.error
-      });
-    }
+/**
+ * FALLBACK DE PROVEEDOR
+ *
+ * Si el proveedor seleccionado por el routing falla,
+ * intentamos usar otro proveedor habilitado antes de devolver error.
+ */
+if (!providerResult.success) {
+  fallbackFrom = {
+    provider_id: provider._id,
+    provider_name: provider.name,
+    model: provider.model,
+    error: providerResult.error,
+    latency_ms: providerResult.latencyMs
+  };
+
+  const fallbackProvider = await Provider.findOne({
+    enabled: true,
+    _id: { $ne: provider._id }
+  }).sort({
+    input_price_per_1m: 1,
+    output_price_per_1m: 1
+  });
+
+  if (!fallbackProvider) {
+    await AiRequest.create({
+      consumer_id: consumerId,
+      provider_id: provider._id,
+      provider_name: provider.name,
+      model: provider.model,
+      status: "error",
+      usage: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0
+      },
+      cost: {
+        total_cost: 0,
+        input_cost: 0,
+        output_cost: 0
+      },
+      budget: {
+        spend_before: budgetStatus.currentSpend,
+        spend_after: budgetStatus.currentSpend,
+        budget_limit: budgetStatus.budgetLimit,
+        budget_percentage_after: budgetStatus.percentage * 100
+      },
+      analysis: routingDecision.analysis,
+      routing: {
+        strategy: "provider_error",
+        reason: `Error llamando al proveedor y no hay fallback disponible: ${providerResult.error}`,
+        selected_provider_id: selectedProviderId,
+        fallback_from: fallbackFrom
+      },
+      latency_ms: providerResult.latencyMs,
+      error_message: providerResult.error
+    });
+
+    return res.status(502).json({
+      error: "Provider error",
+      provider: provider.name,
+      details: providerResult.error,
+      fallback_available: false
+    });
+  }
+
+  const fallbackResult = await callProvider(fallbackProvider, req.body);
+
+  if (!fallbackResult.success) {
+    await AiRequest.create({
+      consumer_id: consumerId,
+      provider_id: provider._id,
+      provider_name: provider.name,
+      model: provider.model,
+      status: "error",
+      usage: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0
+      },
+      cost: {
+        total_cost: 0,
+        input_cost: 0,
+        output_cost: 0
+      },
+      budget: {
+        spend_before: budgetStatus.currentSpend,
+        spend_after: budgetStatus.currentSpend,
+        budget_limit: budgetStatus.budgetLimit,
+        budget_percentage_after: budgetStatus.percentage * 100
+      },
+      analysis: routingDecision.analysis,
+      routing: {
+        strategy: "provider_error",
+        reason: `Proveedor principal y fallback fallaron. Principal: ${providerResult.error}. Fallback: ${fallbackResult.error}`,
+        selected_provider_id: selectedProviderId,
+        fallback_from: fallbackFrom,
+        fallback_attempt: {
+          provider_id: fallbackProvider._id,
+          provider_name: fallbackProvider.name,
+          model: fallbackProvider.model,
+          error: fallbackResult.error,
+          latency_ms: fallbackResult.latencyMs
+        }
+      },
+      latency_ms: providerResult.latencyMs + fallbackResult.latencyMs,
+      error_message: fallbackResult.error
+    });
+
+    return res.status(502).json({
+      error: "Provider error",
+      provider: provider.name,
+      details: providerResult.error,
+      fallback_provider: fallbackProvider.name,
+      fallback_details: fallbackResult.error
+    });
+  }
+
+  usedFallback = true;
+
+  provider = fallbackProvider;
+  providerResult = fallbackResult;
+  selectedProviderId = fallbackProvider._id;
+
+  strategy = "fallback";
+  reason = `El proveedor principal ${fallbackFrom.provider_name} falló. Se usó fallback con ${fallbackProvider.name}.`;
+
+  if (isCacheableRequest(req.body)) {
+    cacheKey = buildCacheKey({
+      consumerId,
+      providerId: provider._id,
+      model: provider.model,
+      body: req.body
+    });
+  }
+}
     const usage = providerResult.data.usage || {
       prompt_tokens: 0,
       completion_tokens: 0,
@@ -306,6 +424,14 @@ const providerResult = await callProvider(provider, req.body);
     };
 
     const cost = calculateCost(provider, usage);
+
+    const qualityEvaluation = evaluateResponseQuality({
+  responseData: providerResult.data,
+  analysis: routingDecision.analysis,
+  provider,
+  strategy,
+  usage
+});
 
     if (cacheKey) {
   await saveResponseToCache({
@@ -350,9 +476,17 @@ routing: {
   reason,
   selected_provider_id: selectedProviderId,
   scoring: routingDecision.scoring || [],
-  cheapest_alternative: routingDecision.cheapest_alternative || null
+  cheapest_alternative: routingDecision.cheapest_alternative || null,
+  fallback_used: usedFallback,
+  fallback_from: fallbackFrom
 },
-      latency_ms: providerResult.latencyMs
+cache: {
+  hit: false,
+  cache_key: cacheKey,
+  estimated_saving: 0
+},
+quality_evaluation: qualityEvaluation,
+latency_ms: providerResult.latencyMs
     });
 
     if (budgetPercentageAfter >= consumer.alert_threshold) {
@@ -375,6 +509,16 @@ routing: {
   analysis: routingDecision.analysis,
   scoring: routingDecision.scoring || [],
   cheapest_alternative: routingDecision.cheapest_alternative || null,
+  fallback: {
+    used: usedFallback,
+    from: fallbackFrom
+  },
+  cache: {
+    hit: false,
+    cache_key: cacheKey,
+    estimated_saving: 0
+  },
+  quality_evaluation: qualityEvaluation,
   cost,
   budget: {
     spend_before: budgetStatus.currentSpend,

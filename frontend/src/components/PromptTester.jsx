@@ -10,6 +10,10 @@ function formatCost(value) {
   return `$${Number(value).toFixed(8)}`;
 }
 
+function formatTokens(value) {
+  return Number(value || 0).toLocaleString();
+}
+
 function getAssistantContent(response) {
   return response?.choices?.[0]?.message?.content || "";
 }
@@ -73,6 +77,12 @@ function PromptTester({ onRequestCompleted }) {
   const mainTask = analysis?.primary_task_type || analysis?.task_types?.[0]?.type || "-";
   const confidence = analysis?.task_types?.[0]?.confidence;
   const assistantContent = getAssistantContent(backendResponse);
+
+  const cache = finops?.cache;
+const isCacheHit = cache?.hit === true;
+const originalUsage = cache?.original_usage || {};
+const originalCost = cache?.original_cost || {};
+const qualityEvaluation = finops?.quality_evaluation;
 
   return (
     <section className="panel prompt-tester">
@@ -140,6 +150,18 @@ function PromptTester({ onRequestCompleted }) {
               </small>
             </div>
 
+            {isCacheHit && (
+  <div className="result-card">
+    <DollarSign size={18} />
+    <span>Cache hit</span>
+    <strong>Cost avoided</strong>
+    <small>
+      Saved: {formatCost(cache?.estimated_saving)} · Original cost:{" "}
+      {formatCost(originalCost.total_cost)}
+    </small>
+  </div>
+)}
+
             <div className="result-card">
               <Route size={18} />
               <span>Selected provider</span>
@@ -153,6 +175,22 @@ function PromptTester({ onRequestCompleted }) {
               <strong>{analysis?.risk_level || "-"}</strong>
               <small>Complexity: {analysis?.complexity || "-"}</small>
             </div>
+
+            {qualityEvaluation && (
+  <div className="result-card">
+    <ShieldCheck size={18} />
+    <span>Quality evaluation</span>
+    <strong>
+      {qualityEvaluation.score !== null && qualityEvaluation.score !== undefined
+        ? `${Math.round(qualityEvaluation.score * 100)}%`
+        : qualityEvaluation.label || "-"}
+    </strong>
+    <small>
+      Method: {qualityEvaluation.method || "-"} · Label:{" "}
+      {qualityEvaluation.label || "-"}
+    </small>
+  </div>
+)}
 
             <div className="result-card">
               <DollarSign size={18} />
@@ -176,6 +214,27 @@ function PromptTester({ onRequestCompleted }) {
             <strong>Routing reason</strong>
             <p>{finops?.reason || "-"}</p>
           </div>
+
+          {qualityEvaluation && (
+  <div className="routing-box">
+    <strong>Quality reason</strong>
+    <p>{qualityEvaluation.reason || "-"}</p>
+  </div>
+)}
+
+          {isCacheHit && (
+  <div className="routing-box">
+    <strong>Cache details</strong>
+    <p>
+      This response was served from cache. The proxy did not call the AI
+      provider, so the real cost and token usage for this request are 0.
+    </p>
+    <p>
+      Original usage: {formatTokens(originalUsage.total_tokens)} tokens ·
+      Estimated saving: {formatCost(cache?.estimated_saving)}
+    </p>
+  </div>
+)}
 
           {assistantContent && (
             <div className="routing-box">

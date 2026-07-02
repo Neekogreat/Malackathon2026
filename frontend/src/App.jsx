@@ -14,7 +14,7 @@ import AlertsPanel from "./components/AlertsPanel";
 import RecommendationsPanel from "./components/RecommendationsPanel";
 import RequestsTable from "./components/RequestsTable";
 
-import { recommendations } from "./data/mockData";
+
 import { getUniqueValues } from "./utils";
 
 import {
@@ -174,7 +174,7 @@ function App() {
             <section className="dashboard-grid">
               <BudgetsPanel budgets={budgets} />
               <AlertsPanel alerts={alerts} />
-              <RecommendationsPanel recommendations={recommendations} />
+              <RecommendationsPanel refreshKey={forecastRefreshKey}/>
             </section>
 
             <RequestsTable requests={filteredRequests} />
