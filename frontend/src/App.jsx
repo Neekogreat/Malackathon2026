@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
@@ -14,14 +14,59 @@ import AlertsPanel from "./components/AlertsPanel";
 import RecommendationsPanel from "./components/RecommendationsPanel";
 import RequestsTable from "./components/RequestsTable";
 
-import { alerts, budgets, recommendations, requests } from "./data/mockData";
+import { recommendations } from "./data/mockData";
 import { getUniqueValues } from "./utils";
+
+import {
+  getAlerts,
+  getConsumers,
+  getOverview,
+  getRequests,
+  mapBackendAlert,
+  mapBackendConsumerToBudget,
+  mapBackendRequest
+} from "./services/api";
 
 function App() {
   const [search, setSearch] = useState("");
   const [selectedConsumer, setSelectedConsumer] = useState("all");
   const [selectedProvider, setSelectedProvider] = useState("all");
   const [selectedCategory, setSelectedCategory] = useState("all");
+
+  const [overview, setOverview] = useState(null);
+  const [requests, setRequests] = useState([]);
+  const [budgets, setBudgets] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+
+  const [loadingDashboard, setLoadingDashboard] = useState(true);
+  const [dashboardError, setDashboardError] = useState("");
+
+  async function loadDashboardData() {
+    try {
+      setDashboardError("");
+
+      const [overviewData, requestsData, consumersData, alertsData] =
+        await Promise.all([
+          getOverview(),
+          getRequests(100),
+          getConsumers(),
+          getAlerts()
+        ]);
+
+      setOverview(overviewData);
+      setRequests(requestsData.map(mapBackendRequest));
+      setBudgets(consumersData.map(mapBackendConsumerToBudget));
+      setAlerts(alertsData.map(mapBackendAlert));
+    } catch (error) {
+      setDashboardError(error.message);
+    } finally {
+      setLoadingDashboard(false);
+    }
+  }
+
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
 
   const consumers = getUniqueValues(requests, "consumer");
   const providers = getUniqueValues(requests, "provider");
@@ -31,12 +76,17 @@ function App() {
     return requests.filter((request) => {
       const searchValue = search.toLowerCase();
 
-      const matchesSearch =
-        request.consumer.toLowerCase().includes(searchValue) ||
-        request.provider.toLowerCase().includes(searchValue) ||
-        request.model.toLowerCase().includes(searchValue) ||
-        request.promptCategory.toLowerCase().includes(searchValue) ||
-        request.routingReason.toLowerCase().includes(searchValue);
+      const matchesSearch = [
+        request.consumer,
+        request.provider,
+        request.model,
+        request.promptCategory,
+        request.routingReason
+      ].some((value) =>
+        String(value || "")
+          .toLowerCase()
+          .includes(searchValue)
+      );
 
       const matchesConsumer =
         selectedConsumer === "all" || request.consumer === selectedConsumer;
@@ -45,11 +95,17 @@ function App() {
         selectedProvider === "all" || request.provider === selectedProvider;
 
       const matchesCategory =
-        selectedCategory === "all" || request.promptCategory === selectedCategory;
+        selectedCategory === "all" ||
+        request.promptCategory === selectedCategory;
 
-      return matchesSearch && matchesConsumer && matchesProvider && matchesCategory;
+      return (
+        matchesSearch &&
+        matchesConsumer &&
+        matchesProvider &&
+        matchesCategory
+      );
     });
-  }, [search, selectedConsumer, selectedProvider, selectedCategory]);
+  }, [requests, search, selectedConsumer, selectedProvider, selectedCategory]);
 
   return (
     <div className="app">
@@ -72,27 +128,42 @@ function App() {
           categories={categories}
         />
 
-        <PromptTester />
+        <PromptTester onRequestCompleted={loadDashboardData} />
 
-        <KpiCards requests={filteredRequests} />
+        {dashboardError && (
+          <section className="panel">
+            <strong>Error cargando dashboard</strong>
+            <p>{dashboardError}</p>
+          </section>
+        )}
 
-        <section className="dashboard-grid">
-          <CostChart requests={filteredRequests} />
-          <ConsumerBreakdown requests={filteredRequests} />
-          <CategoryBreakdown requests={filteredRequests} />
-        </section>
+        {loadingDashboard ? (
+          <section className="panel">
+            <strong>Cargando datos reales del backend...</strong>
+          </section>
+        ) : (
+          <>
+            <KpiCards requests={filteredRequests} overview={overview} />
 
-        <section className="dashboard-grid">
-          <ForecastChart requests={filteredRequests} />
-        </section>
+            <section className="dashboard-grid">
+              <CostChart requests={filteredRequests} />
+              <ConsumerBreakdown requests={filteredRequests} />
+              <CategoryBreakdown requests={filteredRequests} />
+            </section>
 
-        <section className="dashboard-grid">
-          <BudgetsPanel budgets={budgets} />
-          <AlertsPanel alerts={alerts} />
-          <RecommendationsPanel recommendations={recommendations} />
-        </section>
+            <section className="dashboard-grid">
+              <ForecastChart requests={filteredRequests} />
+            </section>
 
-        <RequestsTable requests={filteredRequests} />
+            <section className="dashboard-grid">
+              <BudgetsPanel budgets={budgets} />
+              <AlertsPanel alerts={alerts} />
+              <RecommendationsPanel recommendations={recommendations} />
+            </section>
+
+            <RequestsTable requests={filteredRequests} />
+          </>
+        )}
       </main>
     </div>
   );

@@ -1,4 +1,5 @@
 const Provider = require("../models/Provider");
+const { analyzeRequestWithQwen } = require("./analyzer.service");
 
 const STRATEGIES = {
   CHEAP_MODEL: "cheap_model",
@@ -15,21 +16,27 @@ const RISK_LEVELS = {
   HIGH: "high"
 };
 
-/**
- * Estos tipos están pensados para encajar con las capabilities
- * que ya tenéis en el seed de Provider.
- */
 const TASK_TYPES = {
   SUMMARY: "summary",
   SIMPLE_QA: "simple_qa",
+  TRANSLATION: "translation",
   CLASSIFICATION: "classification",
   REWRITING: "rewriting",
   CREATIVE_WRITING: "creative_writing",
+  CODE_GENERATION: "code_generation",
   CODE_DEBUGGING: "code_debugging",
   TECHNICAL_REASONING: "technical_reasoning",
   BUSINESS_ANALYSIS: "business_analysis",
+  LONG_CONTEXT: "long_context",
+  UNKNOWN: "unknown",
   GENERAL_CHAT: "simple_qa"
 };
+
+const TECHNICAL_TASK_TYPES = [
+  TASK_TYPES.CODE_DEBUGGING,
+  TASK_TYPES.CODE_GENERATION,
+  TASK_TYPES.TECHNICAL_REASONING
+];
 
 function normalizeText(text) {
   return String(text || "")
@@ -51,10 +58,6 @@ function estimateInputTokens(messages = []) {
     return 0;
   }
 
-  /**
-   * Estimación previa simple:
-   * 1 token ≈ 4 caracteres.
-   */
   return Math.ceil(text.length / 4);
 }
 
@@ -65,14 +68,42 @@ function countMatches(text, patterns) {
 }
 
 /**
- * Analyzer mejorado.
- *
- * Devuelve:
- * - task_types con confianza
- * - primary_task_type
- * - risk_level
- * - estimated_input_tokens
- * - reason
+ * Detecta si el análisis corresponde a una tarea técnica.
+ * Esta función es clave:
+ * aunque Qwen devuelva risk_level = low, si la categoría es técnica,
+ * el routing debe priorizar calidad.
+ */
+function isTechnicalAnalysis(analysis = {}) {
+  const taskTypes = analysis.task_types?.map((task) => task.type) || [];
+
+  return (
+    TECHNICAL_TASK_TYPES.includes(analysis.primary_task_type) ||
+    taskTypes.some((type) => TECHNICAL_TASK_TYPES.includes(type))
+  );
+}
+
+function normalizeAnalysisForRouting(analysis = {}) {
+  const normalizedAnalysis = {
+    ...analysis
+  };
+
+  if (isTechnicalAnalysis(normalizedAnalysis)) {
+    normalizedAnalysis.risk_level = RISK_LEVELS.HIGH;
+    normalizedAnalysis.complexity = "high";
+    normalizedAnalysis.quality_required = "high";
+
+    normalizedAnalysis.reason = `${
+      normalizedAnalysis.reason || "Clasificación generada por Qwen."
+    } Regla FinOps aplicada: las tareas técnicas requieren mayor calidad.`;
+  }
+
+  return normalizedAnalysis;
+}
+
+/**
+ * Analyzer local antiguo.
+ * Ahora el sistema principal usa Qwen, pero dejamos este analyzer como utilidad
+ * o fallback exportado si más adelante lo necesitáis.
  */
 function analyzeRequest(messages = []) {
   const rawText = getPromptText(messages);
@@ -99,6 +130,16 @@ function analyzeRequest(messages = []) {
       "como funciona",
       "ayudame a entender",
       "dime que significa"
+    ],
+
+    [TASK_TYPES.TRANSLATION]: [
+      "traduce",
+      "traducir",
+      "translate",
+      "en ingles",
+      "en español",
+      "al ingles",
+      "al español"
     ],
 
     [TASK_TYPES.CLASSIFICATION]: [
@@ -130,6 +171,22 @@ function analyzeRequest(messages = []) {
       "post para redes"
     ],
 
+    [TASK_TYPES.CODE_GENERATION]: [
+      "crea una funcion",
+      "crea una función",
+      "hazme una funcion",
+      "hazme una función",
+      "implementa",
+      "escribe codigo",
+      "escribe código",
+      "genera codigo",
+      "genera código",
+      "componente react",
+      "endpoint",
+      "controlador",
+      "servicio"
+    ],
+
     [TASK_TYPES.CODE_DEBUGGING]: [
       "codigo",
       "código",
@@ -142,6 +199,9 @@ function analyzeRequest(messages = []) {
       "debug",
       "depura",
       "corrige el codigo",
+      "corrige el código",
+      "no funciona",
+      "falla",
       "javascript",
       "node",
       "react",
@@ -194,12 +254,16 @@ function analyzeRequest(messages = []) {
   const scoredTasks = Object.entries(taskSignals).map(([taskType, patterns]) => {
     let score = countMatches(text, patterns);
 
-    /**
-     * Señales extra que no son solo palabras sueltas.
-     */
     if (
       taskType === TASK_TYPES.CODE_DEBUGGING &&
       /```|function|const|let|class|select|insert|update|delete|npm|git|docker/.test(text)
+    ) {
+      score += 2;
+    }
+
+    if (
+      taskType === TASK_TYPES.CODE_GENERATION &&
+      /function|const|let|class|router|controller|service|component|export default/.test(text)
     ) {
       score += 2;
     }
@@ -298,6 +362,7 @@ function calculateConfidence(score) {
 function calculateRiskLevel({ primaryTaskType, estimatedInputTokens, text }) {
   const highRiskTasks = [
     TASK_TYPES.CODE_DEBUGGING,
+    TASK_TYPES.CODE_GENERATION,
     TASK_TYPES.TECHNICAL_REASONING
   ];
 
@@ -354,11 +419,30 @@ function buildAnalysisReason(primaryTaskType, riskLevel, estimatedInputTokens) {
 }
 
 function getStrategyFromAnalysis(analysis, budgetStatus) {
+  /**
+   * Si el consumidor está cerca del presupuesto, FinOps prioriza ahorro.
+   * Esta regla puede hacer que incluso tareas técnicas se degraden si estáis
+   * en modo ahorro. Si queréis que Provider B gane siempre para código,
+   * poned este bloque después de isTechnicalAnalysis.
+   */
   if (budgetStatus.status === "warning") {
     return STRATEGIES.BUDGET_SAVING;
   }
 
-  if (analysis.risk_level === RISK_LEVELS.HIGH) {
+  /**
+   * Regla fuerte:
+   * si Qwen detecta debugging, generación de código o razonamiento técnico,
+   * se prioriza calidad, aunque el risk_level venga como low.
+   */
+  if (isTechnicalAnalysis(analysis)) {
+    return STRATEGIES.QUALITY_PRIORITY;
+  }
+
+  if (
+    analysis.risk_level === RISK_LEVELS.HIGH ||
+    analysis.complexity === RISK_LEVELS.HIGH ||
+    analysis.quality_required === RISK_LEVELS.HIGH
+  ) {
     return STRATEGIES.QUALITY_PRIORITY;
   }
 
@@ -386,8 +470,8 @@ function getWeights(strategy) {
 
   if (strategy === STRATEGIES.QUALITY_PRIORITY) {
     return {
-      cost: 0.25,
-      quality: 0.75
+      cost: 0.2,
+      quality: 0.8
     };
   }
 
@@ -415,10 +499,6 @@ function getCostScore(provider, providers) {
     return 1;
   }
 
-  /**
-   * El proveedor más barato se acerca a 1.
-   * El proveedor más caro se acerca a 0.
-   */
   return 1 - (providerPrice - minPrice) / (maxPrice - minPrice);
 }
 
@@ -430,16 +510,28 @@ function getQualityScore(provider, taskType) {
   }
 
   /**
-   * Si no tenemos capability explícita para esa tarea,
-   * damos una puntuación media.
+   * Fallback importante:
+   * si no hay capability explícita en MongoDB, asumimos que Provider B
+   * es mejor para tareas técnicas y Provider A mejor para tareas sencillas.
    */
-  return 0.55;
+  if (TECHNICAL_TASK_TYPES.includes(taskType)) {
+    if (String(provider._id) === "provider-b") {
+      return 0.9;
+    }
+
+    if (String(provider._id) === "provider-a") {
+      return 0.55;
+    }
+  }
+
+  if (String(provider._id) === "provider-a") {
+    return 0.7;
+  }
+
+  return 0.6;
 }
 
 function estimateOutputTokens(estimatedInputTokens) {
-  /**
-   * Estimación simple para calcular coste antes de llamar al modelo.
-   */
   return Math.max(100, Math.ceil(estimatedInputTokens * 0.4));
 }
 
@@ -464,15 +556,22 @@ function scoreProvider(provider, providers, analysis, strategy) {
 
   let adjustedQualityScore = qualityScore;
 
-  /**
-   * Penalizamos modelos con baja calidad cuando el riesgo es alto.
-   */
+  if (
+    strategy === STRATEGIES.QUALITY_PRIORITY &&
+    isTechnicalAnalysis(analysis) &&
+    String(provider._id) === "provider-b"
+  ) {
+    adjustedQualityScore += 0.1;
+  }
+
   if (
     analysis.risk_level === RISK_LEVELS.HIGH &&
     adjustedQualityScore < 0.7
   ) {
     adjustedQualityScore -= 0.2;
   }
+
+  adjustedQualityScore = Math.max(0, Math.min(1, adjustedQualityScore));
 
   const totalScore =
     costScore * weights.cost +
@@ -509,13 +608,26 @@ function getCheapestAlternative(providers, analysis) {
   return sortedByCost[0];
 }
 
+function getProviderBFromScoring(scoring = []) {
+  return scoring.find((providerScore) => {
+    return String(providerScore.provider_id) === "provider-b";
+  });
+}
+
 function buildFinalReason(strategy, analysis, selectedProvider, cheapestAlternative) {
   if (strategy === STRATEGIES.CHEAP_MODEL) {
     return "Tarea de bajo riesgo; el modelo barato es suficiente";
   }
 
+  if (
+    strategy === STRATEGIES.QUALITY_PRIORITY &&
+    isTechnicalAnalysis(analysis)
+  ) {
+    return "Tarea técnica detectada por Qwen; se prioriza calidad usando Provider B";
+  }
+
   if (strategy === STRATEGIES.QUALITY_PRIORITY) {
-    return "Tarea técnica de alto riesgo; se prioriza calidad";
+    return "Tarea de alto riesgo o complejidad; se prioriza calidad";
   }
 
   if (strategy === STRATEGIES.BUDGET_SAVING) {
@@ -538,7 +650,8 @@ function buildFinalReason(strategy, analysis, selectedProvider, cheapestAlternat
 }
 
 async function chooseProvider({ consumer, budgetStatus, messages }) {
-  const analysis = analyzeRequest(messages);
+  let analysis = await analyzeRequestWithQwen(messages);
+  analysis = normalizeAnalysisForRouting(analysis);
 
   const providers = await Provider.find({
     enabled: true
@@ -585,7 +698,24 @@ async function chooseProvider({ consumer, budgetStatus, messages }) {
     .map((provider) => scoreProvider(provider, providers, analysis, strategy))
     .sort((a, b) => b.total_score - a.total_score);
 
-  const selectedProvider = scoring[0];
+  /**
+   * Regla fuerte:
+   * si es tarea técnica y la estrategia es quality_priority,
+   * elegimos Provider B directamente si está disponible.
+   *
+   * Esto evita el caso que os pasó:
+   * Qwen clasifica code_debugging, pero risk_level sale low,
+   * y el scoring acaba eligiendo Provider A por coste.
+   */
+  const providerBScore = getProviderBFromScoring(scoring);
+
+  const selectedProvider =
+    strategy === STRATEGIES.QUALITY_PRIORITY &&
+    isTechnicalAnalysis(analysis) &&
+    providerBScore
+      ? providerBScore
+      : scoring[0];
+
   const cheapestAlternative = getCheapestAlternative(providers, analysis);
 
   return {

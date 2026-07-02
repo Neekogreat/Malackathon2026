@@ -14,7 +14,7 @@ function getAssistantContent(response) {
   return response?.choices?.[0]?.message?.content || "";
 }
 
-function PromptTester() {
+function PromptTester({ onRequestCompleted }) {
   const [consumerId, setConsumerId] = useState("equipo-marketing");
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
@@ -57,6 +57,10 @@ function PromptTester() {
       }
 
       setBackendResponse(data);
+
+      if (onRequestCompleted) {
+        await onRequestCompleted();
+      }
     } catch (err) {
       setError(err.message);
     } finally {
