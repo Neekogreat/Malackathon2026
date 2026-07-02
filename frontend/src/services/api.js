@@ -76,10 +76,11 @@ export function mapBackendRequest(req) {
       req.error_message ||
       "Sin motivo registrado",
     estimatedSaving: Number(
-      req.routing?.estimated_saving_if_cheaper ||
-        req.routing?.estimated_saving_vs_expensive ||
-        0
-    )
+  req.cache?.estimated_saving ||
+    req.routing?.estimated_saving_if_cheaper ||
+    req.routing?.estimated_saving_vs_expensive ||
+    0
+)
   };
 }
 

@@ -81,29 +81,41 @@ async function chatCompletions(req, res) {
       });
 
       await AiRequest.create({
-        consumer_id: consumerId,
-        status: "blocked",
+  consumer_id: consumerId,
+  status: "blocked",
 
-        budget: {
-          spend_before: budgetStatus.currentSpend,
-          spend_after: budgetStatus.currentSpend,
-          budget_limit: budgetStatus.budgetLimit,
-          budget_percentage_after: budgetStatus.percentage * 100
-        },
+  usage: {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0
+  },
 
-        routing: {
-          strategy: "budget_blocked",
-          reason: "Presupuesto superado y degradación no permitida",
-          selected_provider_id: null,
-          selected_model: null,
-          scoring: [],
-          cheapest_alternative: null,
-          most_expensive_alternative: null,
-          selected_estimated_cost: 0,
-          estimated_saving_if_cheaper: 0,
-          extra_cost_for_quality: 0
-        }
-      });
+  cost: {
+    input_cost: 0,
+    output_cost: 0,
+    total_cost: 0
+  },
+
+  budget: {
+    spend_before: budgetStatus.currentSpend,
+    spend_after: budgetStatus.currentSpend,
+    budget_limit: budgetStatus.budgetLimit,
+    budget_percentage_after: budgetStatus.percentage * 100
+  },
+
+  routing: {
+    strategy: "budget_blocked",
+    reason: "Presupuesto superado y degradación no permitida",
+    selected_provider_id: null,
+    selected_model: null,
+    scoring: [],
+    cheapest_alternative: null,
+    most_expensive_alternative: null,
+    selected_estimated_cost: 0,
+    estimated_saving_if_cheaper: 0,
+    extra_cost_for_quality: 0
+  }
+});
 
       return res.status(402).json({
         error: "Budget exceeded",
@@ -136,36 +148,48 @@ async function chatCompletions(req, res) {
       });
 
       await AiRequest.create({
-        consumer_id: consumerId,
-        status: "blocked",
+  consumer_id: consumerId,
+  status: "blocked",
 
-        budget: {
-          spend_before: budgetStatus.currentSpend,
-          spend_after: budgetStatus.currentSpend,
-          budget_limit: budgetStatus.budgetLimit,
-          budget_percentage_after: budgetStatus.percentage * 100
-        },
+  usage: {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0
+  },
 
-        analysis: routingDecision.analysis,
+  cost: {
+    input_cost: 0,
+    output_cost: 0,
+    total_cost: 0
+  },
 
-        routing: {
-          strategy: routingDecision.strategy,
-          reason: routingDecision.reason,
-          selected_provider_id: null,
-          selected_model: null,
+  budget: {
+    spend_before: budgetStatus.currentSpend,
+    spend_after: budgetStatus.currentSpend,
+    budget_limit: budgetStatus.budgetLimit,
+    budget_percentage_after: budgetStatus.percentage * 100
+  },
 
-          scoring: routingDecision.scoring || [],
-          cheapest_alternative: routingDecision.cheapest_alternative || null,
-          most_expensive_alternative:
-            routingDecision.most_expensive_alternative || null,
+  analysis: routingDecision.analysis,
 
-          selected_estimated_cost:
-            routingDecision.selected_estimated_cost || 0,
+  routing: {
+    strategy: routingDecision.strategy,
+    reason: routingDecision.reason,
+    selected_provider_id: null,
+    selected_model: null,
 
-          estimated_saving_if_cheaper: 0,
-          extra_cost_for_quality: 0
-        }
-      });
+    scoring: routingDecision.scoring || [],
+    cheapest_alternative: routingDecision.cheapest_alternative || null,
+    most_expensive_alternative:
+      routingDecision.most_expensive_alternative || null,
+
+    selected_estimated_cost:
+      routingDecision.selected_estimated_cost || 0,
+
+    estimated_saving_if_cheaper: 0,
+    extra_cost_for_quality: 0
+  }
+});
 
       return res.status(402).json({
         error: "Budget exceeded",
