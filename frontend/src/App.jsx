@@ -38,6 +38,12 @@ function App() {
   const [budgets, setBudgets] = useState([]);
   const [alerts, setAlerts] = useState([]);
 
+  /**
+   * Esta clave sirve para forzar que ForecastChart se refresque
+   * cada vez que se envía un prompt nuevo.
+   */
+  const [forecastRefreshKey, setForecastRefreshKey] = useState(0);
+
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [dashboardError, setDashboardError] = useState("");
 
@@ -62,6 +68,16 @@ function App() {
     } finally {
       setLoadingDashboard(false);
     }
+  }
+
+  async function handleRequestCompleted() {
+    await loadDashboardData();
+
+    /**
+     * Esto hace que ForecastChart vuelva a llamar a:
+     * GET /api/dashboard/forecast
+     */
+    setForecastRefreshKey((previousValue) => previousValue + 1);
   }
 
   useEffect(() => {
@@ -128,7 +144,7 @@ function App() {
           categories={categories}
         />
 
-        <PromptTester onRequestCompleted={loadDashboardData} />
+        <PromptTester onRequestCompleted={handleRequestCompleted} />
 
         {dashboardError && (
           <section className="panel">
@@ -152,7 +168,7 @@ function App() {
             </section>
 
             <section className="dashboard-grid">
-              <ForecastChart requests={filteredRequests} />
+              <ForecastChart refreshKey={forecastRefreshKey} />
             </section>
 
             <section className="dashboard-grid">

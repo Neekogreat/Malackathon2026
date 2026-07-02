@@ -19,7 +19,7 @@ function formatPercent(value) {
   return `${Number(value || 0).toFixed(2)}%`;
 }
 
-function ForecastChart() {
+function ForecastChart({refreshKey}) {
   const [forecast, setForecast] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -49,7 +49,7 @@ function ForecastChart() {
 
   useEffect(() => {
     loadForecast();
-  }, []);
+  }, [refreshKey]);
 
   if (loading) {
     return (
