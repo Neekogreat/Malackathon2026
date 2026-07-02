@@ -5,11 +5,6 @@ const { chooseProvider } = require("../services/routing.service");
 
 const { callProvider } = require("../services/provider.service");
 const { calculateCost } = require("../services/cost.service");
-
-const {
-  evaluateResponseQuality
-} = require("../services/quality.service");
-
 const {
   getBudgetStatus,
   createBudgetAlertIfNeeded
@@ -26,15 +21,15 @@ const {
 async function chatCompletions(req, res) {
   const consumerId = req.header("X-Consumer-ID");
 
-console.log("HEADERS RECIBIDOS:", req.headers);
-console.log("CONSUMER ID RECIBIDO:", consumerId);
+  console.log("HEADERS RECIBIDOS:", req.headers);
+  console.log("CONSUMER ID RECIBIDO:", consumerId);
 
   if (!consumerId) {
     return res.status(400).json({
       error: "Falta el header X-Consumer-ID"
     });
   }
-  // VALIDACIÓN DEL BODY (messages)
+
   const messages = req.body?.messages;
 
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -42,11 +37,15 @@ console.log("CONSUMER ID RECIBIDO:", consumerId);
       error: "Body inválido: 'messages' debe ser un array no vacío",
       example: {
         messages: [
-          { role: "user", content: "Resume qué es AI FinOps en una frase" }
+          {
+            role: "user",
+            content: "Resume qué es AI FinOps en una frase"
+          }
         ]
       }
     });
   }
+
   try {
     const consumer = await Consumer.findById(consumerId);
 
@@ -60,6 +59,11 @@ console.log("CONSUMER ID RECIBIDO:", consumerId);
 
     const budgetStatus = await getBudgetStatus(consumerId);
 
+    /**
+     * Caso 1:
+     * Presupuesto superado y el consumidor NO permite degradación.
+     * Se bloquea antes incluso de hacer routing.
+     */
     if (
       budgetStatus.status === "budget_exceeded" &&
       !consumer.allow_degradation
@@ -74,15 +78,25 @@ console.log("CONSUMER ID RECIBIDO:", consumerId);
       await AiRequest.create({
         consumer_id: consumerId,
         status: "blocked",
+
         budget: {
           spend_before: budgetStatus.currentSpend,
           spend_after: budgetStatus.currentSpend,
           budget_limit: budgetStatus.budgetLimit,
           budget_percentage_after: budgetStatus.percentage * 100
         },
+
         routing: {
           strategy: "budget_blocked",
-          reason: "Presupuesto superado y degradación no permitida"
+          reason: "Presupuesto superado y degradación no permitida",
+          selected_provider_id: null,
+          selected_model: null,
+          scoring: [],
+          cheapest_alternative: null,
+          most_expensive_alternative: null,
+          selected_estimated_cost: 0,
+          estimated_saving_if_cheaper: 0,
+          extra_cost_for_quality: 0
         }
       });
 
@@ -94,108 +108,146 @@ console.log("CONSUMER ID RECIBIDO:", consumerId);
       });
     }
 
+    /**
+     * Routing:
+     * Qwen analiza la petición y routing.service decide Provider A o B.
+     */
     const routingDecision = await chooseProvider({
-  consumer,
-  budgetStatus,
-  messages: req.body.messages || []
-});
+      consumer,
+      budgetStatus,
+      messages: req.body.messages || []
+    });
 
-if (routingDecision.action === "block") {
-  await createBudgetAlertIfNeeded({
-    consumerId,
-    currentSpend: budgetStatus.currentSpend,
-    budgetLimit: budgetStatus.budgetLimit,
-    status: budgetStatus.status
-  });
+    /**
+     * Caso 2:
+     * El routing decide bloquear.
+     */
+    if (routingDecision.action === "block") {
+      await createBudgetAlertIfNeeded({
+        consumerId,
+        currentSpend: budgetStatus.currentSpend,
+        budgetLimit: budgetStatus.budgetLimit,
+        status: budgetStatus.status
+      });
 
-  await AiRequest.create({
-    consumer_id: consumerId,
-    status: "blocked",
-    budget: {
-      spend_before: budgetStatus.currentSpend,
-      spend_after: budgetStatus.currentSpend,
-      budget_limit: budgetStatus.budgetLimit,
-      budget_percentage_after: budgetStatus.percentage * 100
-    },
-    analysis: routingDecision.analysis,
-    routing: {
-      strategy: routingDecision.strategy,
-      reason: routingDecision.reason
+      await AiRequest.create({
+        consumer_id: consumerId,
+        status: "blocked",
+
+        budget: {
+          spend_before: budgetStatus.currentSpend,
+          spend_after: budgetStatus.currentSpend,
+          budget_limit: budgetStatus.budgetLimit,
+          budget_percentage_after: budgetStatus.percentage * 100
+        },
+
+        analysis: routingDecision.analysis,
+
+        routing: {
+          strategy: routingDecision.strategy,
+          reason: routingDecision.reason,
+          selected_provider_id: null,
+          selected_model: null,
+
+          scoring: routingDecision.scoring || [],
+          cheapest_alternative: routingDecision.cheapest_alternative || null,
+          most_expensive_alternative:
+            routingDecision.most_expensive_alternative || null,
+
+          selected_estimated_cost:
+            routingDecision.selected_estimated_cost || 0,
+
+          estimated_saving_if_cheaper: 0,
+          extra_cost_for_quality: 0
+        }
+      });
+
+      return res.status(402).json({
+        error: "Budget exceeded",
+        consumer: consumerId,
+        reason: routingDecision.reason
+      });
     }
-  });
 
-  return res.status(402).json({
-    error: "Budget exceeded",
-    consumer: consumerId,
-    reason: routingDecision.reason
-  });
-}
-
-let selectedProviderId = routingDecision.selected_provider_id;
-let strategy = routingDecision.strategy;
-let reason = routingDecision.reason;
+    let selectedProviderId = routingDecision.selected_provider_id;
+    let strategy = routingDecision.strategy;
+    let reason = routingDecision.reason;
 
     let provider = await Provider.findById(selectedProviderId);
 
-if (!provider) {
-  return res.status(500).json({
-    error: "Proveedor no encontrado"
-  });
-}
+    if (!provider) {
+      return res.status(500).json({
+        error: "Proveedor no encontrado"
+      });
+    }
 
-// ===============================
-// CACHE CHECKER
-// ===============================
-let cacheKey = null;
+    /**
+     * CACHE CHECKER
+     */
+    let cacheKey = null;
 
-if (isCacheableRequest(req.body)) {
-  cacheKey = buildCacheKey({
-    consumerId,
-    providerId: provider._id,
-    model: provider.model,
-    body: req.body
-  });
+    if (isCacheableRequest(req.body)) {
+      cacheKey = buildCacheKey({
+        consumerId,
+        providerId: provider._id,
+        model: provider.model,
+        body: req.body
+      });
 
-  const cached = await getCachedResponse(cacheKey);
+      const cached = await getCachedResponse(cacheKey);
 
-  if (cached) {
-    const estimatedSaving = cached.original_cost?.total_cost || 0;
+      if (cached) {
+        const estimatedSaving = cached.original_cost?.total_cost || 0;
 
-    await AiRequest.create({
-      consumer_id: consumerId,
-      provider_id: provider._id,
-      provider_name: provider.name,
-      model: provider.model,
-      status: "cache_hit",
+        await AiRequest.create({
+          consumer_id: consumerId,
+          provider_id: provider._id,
+          provider_name: provider.name,
+          model: provider.model,
+          status: "cache_hit",
 
-      usage: {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0
-      },
+          usage: {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0
+          },
 
-      cost: {
-        input_cost: 0,
-        output_cost: 0,
-        total_cost: 0
-      },
+          cost: {
+            input_cost: 0,
+            output_cost: 0,
+            total_cost: 0
+          },
 
-      budget: {
-        spend_before: budgetStatus.currentSpend,
-        spend_after: budgetStatus.currentSpend,
-        budget_limit: budgetStatus.budgetLimit,
-        budget_percentage_after: budgetStatus.percentage * 100
-      },
+          budget: {
+            spend_before: budgetStatus.currentSpend,
+            spend_after: budgetStatus.currentSpend,
+            budget_limit: budgetStatus.budgetLimit,
+            budget_percentage_after: budgetStatus.percentage * 100
+          },
 
-      analysis: routingDecision.analysis,
+          analysis: routingDecision.analysis,
 
-      routing: {
-        strategy: "cache_hit",
-        reason: "Misma petición exacta encontrada en caché. Coste 0.",
-        selected_provider_id: selectedProviderId,
-        scoring: routingDecision.scoring || [],
-        cheapest_alternative: routingDecision.cheapest_alternative || null
-      },
+          routing: {
+            strategy: "cache_hit",
+            reason: "Misma petición exacta encontrada en caché. Coste 0.",
+            selected_provider_id: selectedProviderId,
+            selected_model: provider.model,
+
+            scoring: routingDecision.scoring || [],
+            cheapest_alternative: routingDecision.cheapest_alternative || null,
+            most_expensive_alternative:
+              routingDecision.most_expensive_alternative || null,
+
+            selected_estimated_cost: 0,
+
+            estimated_saving_if_cheaper:
+              estimatedSaving ||
+              routingDecision.selected_estimated_cost ||
+              routingDecision.cheapest_alternative?.estimated_cost ||
+              0,
+
+            extra_cost_for_quality: 0
+          },
 
       cache: {
         hit: true,
@@ -203,220 +255,121 @@ if (isCacheableRequest(req.body)) {
         estimated_saving: estimatedSaving
       },
 
-      quality_evaluation: {
-  score: null,
-  label: "cached",
-  method: "cache_reuse",
-  reason: "Respuesta servida desde caché; no se reevalúa calidad porque no se ha llamado al proveedor."
-},
+          latency_ms: 0
+        });
 
-      latency_ms: 0
-    });
+        return res.json({
+          ...cached.response_data,
 
-    return res.json({
-  ...cached.response_data,
+          usage: {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0
+          },
 
-  usage: {
-    prompt_tokens: 0,
-    completion_tokens: 0,
-    total_tokens: 0
-  },
-
-  finops: {
-    consumer_id: consumerId,
-    provider: provider.name,
-    model: provider.model,
-    strategy: "cache_hit",
-    reason: "Respuesta servida desde caché porque la petición completa ya existía.",
+          finops: {
+            consumer_id: consumerId,
+            provider: provider.name,
+            model: provider.model,
+            strategy: "cache_hit",
+            reason:
+              "Respuesta servida desde caché porque la petición completa ya existía.",
 
     analysis: routingDecision.analysis,
 
-    quality_evaluation: {
-  score: null,
-  label: "cached",
-  method: "cache_reuse",
-  reason: "Respuesta servida desde caché; no se reevalúa calidad porque no se ha llamado al proveedor."
-},
+            scoring: routingDecision.scoring || [],
 
-    scoring: routingDecision.scoring || [],
+            cheapest_alternative: routingDecision.cheapest_alternative || null,
+            most_expensive_alternative:
+              routingDecision.most_expensive_alternative || null,
 
-    cheapest_alternative: routingDecision.cheapest_alternative || null,
+            selected_estimated_cost: 0,
 
-    cache: {
-      hit: true,
-      cache_key: cacheKey,
-      estimated_saving: estimatedSaving,
+            estimated_saving_if_cheaper:
+              estimatedSaving ||
+              routingDecision.selected_estimated_cost ||
+              routingDecision.cheapest_alternative?.estimated_cost ||
+              0,
 
-      original_usage: cached.original_usage || {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0
-      },
+            extra_cost_for_quality: 0,
 
-      original_cost: cached.original_cost || {
-        input_cost: 0,
-        output_cost: 0,
-        total_cost: 0
+            cache: {
+              hit: true,
+              cache_key: cacheKey,
+              estimated_saving: estimatedSaving,
+
+              original_usage: cached.original_usage || {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0
+              },
+
+              original_cost: cached.original_cost || {
+                input_cost: 0,
+                output_cost: 0,
+                total_cost: 0
+              }
+            },
+
+            cost: {
+              input_cost: 0,
+              output_cost: 0,
+              total_cost: 0
+            },
+
+            budget: {
+              spend_before: budgetStatus.currentSpend,
+              spend_after: budgetStatus.currentSpend,
+              budget_limit: budgetStatus.budgetLimit,
+              budget_percentage_after: budgetStatus.percentage * 100
+            }
+          }
+        });
       }
-    },
-
-    cost: {
-      input_cost: 0,
-      output_cost: 0,
-      total_cost: 0
-    },
-
-    budget: {
-      spend_before: budgetStatus.currentSpend,
-      spend_after: budgetStatus.currentSpend,
-      budget_limit: budgetStatus.budgetLimit,
-      budget_percentage_after: budgetStatus.percentage * 100
     }
-  }
-});
-  }
-}
 
-let providerResult = await callProvider(provider, req.body);
+const providerResult = await callProvider(provider, req.body);
 
-let usedFallback = false;
-let fallbackFrom = null;
+    // Si el proveedor falla, registramos petición con status "error" y coste 0
+    if (!providerResult.success) {
+      await AiRequest.create({
+        consumer_id: consumerId,
+        provider_id: provider._id,
+        provider_name: provider.name,
+        model: provider.model,
+        status: "error",
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0
+        },
+        cost: {
+          total_cost: 0,
+          input_cost: 0,
+          output_cost: 0,
+          currency: "USD"
+        },
+        budget: {
+          spend_before: budgetStatus.currentSpend,
+          spend_after: budgetStatus.currentSpend,
+          budget_limit: budgetStatus.budgetLimit,
+          budget_percentage_after: budgetStatus.percentage * 100
+        },
+        analysis: routingDecision.analysis,
+        routing: {
+          strategy: strategy,
+          reason: `Error llamando al proveedor: ${providerResult.error}`,
+          selected_provider_id: selectedProviderId
+        },
+        latency_ms: providerResult.latencyMs
+      });
 
-/**
- * FALLBACK DE PROVEEDOR
- *
- * Si el proveedor seleccionado por el routing falla,
- * intentamos usar otro proveedor habilitado antes de devolver error.
- */
-if (!providerResult.success) {
-  fallbackFrom = {
-    provider_id: provider._id,
-    provider_name: provider.name,
-    model: provider.model,
-    error: providerResult.error,
-    latency_ms: providerResult.latencyMs
-  };
-
-  const fallbackProvider = await Provider.findOne({
-    enabled: true,
-    _id: { $ne: provider._id }
-  }).sort({
-    input_price_per_1m: 1,
-    output_price_per_1m: 1
-  });
-
-  if (!fallbackProvider) {
-    await AiRequest.create({
-      consumer_id: consumerId,
-      provider_id: provider._id,
-      provider_name: provider.name,
-      model: provider.model,
-      status: "error",
-      usage: {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0
-      },
-      cost: {
-        total_cost: 0,
-        input_cost: 0,
-        output_cost: 0
-      },
-      budget: {
-        spend_before: budgetStatus.currentSpend,
-        spend_after: budgetStatus.currentSpend,
-        budget_limit: budgetStatus.budgetLimit,
-        budget_percentage_after: budgetStatus.percentage * 100
-      },
-      analysis: routingDecision.analysis,
-      routing: {
-        strategy: "provider_error",
-        reason: `Error llamando al proveedor y no hay fallback disponible: ${providerResult.error}`,
-        selected_provider_id: selectedProviderId,
-        fallback_from: fallbackFrom
-      },
-      latency_ms: providerResult.latencyMs,
-      error_message: providerResult.error
-    });
-
-    return res.status(502).json({
-      error: "Provider error",
-      provider: provider.name,
-      details: providerResult.error,
-      fallback_available: false
-    });
-  }
-
-  const fallbackResult = await callProvider(fallbackProvider, req.body);
-
-  if (!fallbackResult.success) {
-    await AiRequest.create({
-      consumer_id: consumerId,
-      provider_id: provider._id,
-      provider_name: provider.name,
-      model: provider.model,
-      status: "error",
-      usage: {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0
-      },
-      cost: {
-        total_cost: 0,
-        input_cost: 0,
-        output_cost: 0
-      },
-      budget: {
-        spend_before: budgetStatus.currentSpend,
-        spend_after: budgetStatus.currentSpend,
-        budget_limit: budgetStatus.budgetLimit,
-        budget_percentage_after: budgetStatus.percentage * 100
-      },
-      analysis: routingDecision.analysis,
-      routing: {
-        strategy: "provider_error",
-        reason: `Proveedor principal y fallback fallaron. Principal: ${providerResult.error}. Fallback: ${fallbackResult.error}`,
-        selected_provider_id: selectedProviderId,
-        fallback_from: fallbackFrom,
-        fallback_attempt: {
-          provider_id: fallbackProvider._id,
-          provider_name: fallbackProvider.name,
-          model: fallbackProvider.model,
-          error: fallbackResult.error,
-          latency_ms: fallbackResult.latencyMs
-        }
-      },
-      latency_ms: providerResult.latencyMs + fallbackResult.latencyMs,
-      error_message: fallbackResult.error
-    });
-
-    return res.status(502).json({
-      error: "Provider error",
-      provider: provider.name,
-      details: providerResult.error,
-      fallback_provider: fallbackProvider.name,
-      fallback_details: fallbackResult.error
-    });
-  }
-
-  usedFallback = true;
-
-  provider = fallbackProvider;
-  providerResult = fallbackResult;
-  selectedProviderId = fallbackProvider._id;
-
-  strategy = "fallback";
-  reason = `El proveedor principal ${fallbackFrom.provider_name} falló. Se usó fallback con ${fallbackProvider.name}.`;
-
-  if (isCacheableRequest(req.body)) {
-    cacheKey = buildCacheKey({
-      consumerId,
-      providerId: provider._id,
-      model: provider.model,
-      body: req.body
-    });
-  }
-}
+      return res.status(502).json({
+        error: "Provider error",
+        provider: provider.name,
+        details: providerResult.error
+      });
+    }
     const usage = providerResult.data.usage || {
       prompt_tokens: 0,
       completion_tokens: 0,
@@ -433,29 +386,36 @@ if (!providerResult.success) {
   usage
 });
 
+    /**
+     * Guardamos en caché solo después de tener una respuesta real.
+     */
     if (cacheKey) {
-  await saveResponseToCache({
-    cacheKey,
-    consumerId,
-    provider,
-    body: req.body,
-    responseData: providerResult.data,
-    usage,
-    cost
-  });
-}
+      await saveResponseToCache({
+        cacheKey,
+        consumerId,
+        provider,
+        body: req.body,
+        responseData: providerResult.data,
+        usage,
+        cost
+      });
+    }
 
     const spendAfter = budgetStatus.currentSpend + cost.total_cost;
     const budgetPercentageAfter = spendAfter / budgetStatus.budgetLimit;
 
     let finalStatus = "success";
 
+    /**
+     * Audit log principal.
+     */
     await AiRequest.create({
       consumer_id: consumerId,
       provider_id: provider._id,
       provider_name: provider.name,
       model: provider.model,
       status: finalStatus,
+
       usage: {
         prompt_tokens: usage.prompt_tokens || 0,
         completion_tokens: usage.completion_tokens || 0,
@@ -463,32 +423,30 @@ if (!providerResult.success) {
           usage.total_tokens ||
           (usage.prompt_tokens || 0) + (usage.completion_tokens || 0)
       },
+
       cost,
+
       budget: {
         spend_before: budgetStatus.currentSpend,
         spend_after: spendAfter,
         budget_limit: budgetStatus.budgetLimit,
         budget_percentage_after: budgetPercentageAfter * 100
       },
+
       analysis: routingDecision.analysis,
 routing: {
   strategy,
   reason,
   selected_provider_id: selectedProviderId,
   scoring: routingDecision.scoring || [],
-  cheapest_alternative: routingDecision.cheapest_alternative || null,
-  fallback_used: usedFallback,
-  fallback_from: fallbackFrom
+  cheapest_alternative: routingDecision.cheapest_alternative || null
 },
-cache: {
-  hit: false,
-  cache_key: cacheKey,
-  estimated_saving: 0
-},
-quality_evaluation: qualityEvaluation,
-latency_ms: providerResult.latencyMs
+      latency_ms: providerResult.latencyMs
     });
 
+    /**
+     * Alerta si se supera el umbral configurado.
+     */
     if (budgetPercentageAfter >= consumer.alert_threshold) {
       await createBudgetAlertIfNeeded({
         consumerId,
@@ -498,6 +456,9 @@ latency_ms: providerResult.latencyMs
       });
     }
 
+    /**
+     * Respuesta final compatible con OpenAI + bloque finops.
+     */
     return res.json({
       ...providerResult.data,
      finops: {
@@ -509,16 +470,6 @@ latency_ms: providerResult.latencyMs
   analysis: routingDecision.analysis,
   scoring: routingDecision.scoring || [],
   cheapest_alternative: routingDecision.cheapest_alternative || null,
-  fallback: {
-    used: usedFallback,
-    from: fallbackFrom
-  },
-  cache: {
-    hit: false,
-    cache_key: cacheKey,
-    estimated_saving: 0
-  },
-  quality_evaluation: qualityEvaluation,
   cost,
   budget: {
     spend_before: budgetStatus.currentSpend,

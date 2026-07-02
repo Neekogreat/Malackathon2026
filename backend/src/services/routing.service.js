@@ -608,6 +608,53 @@ function getCheapestAlternative(providers, analysis) {
   return sortedByCost[0];
 }
 
+function getMostExpensiveAlternative(providers, analysis) {
+  if (!providers.length) {
+    return null;
+  }
+
+  const sortedByCost = providers
+    .map((provider) => ({
+      provider_id: provider._id,
+      provider_name: provider.name,
+      model: provider.model,
+      estimated_cost: estimateProviderCost(provider, analysis)
+    }))
+    .sort((a, b) => b.estimated_cost - a.estimated_cost);
+
+  return sortedByCost[0];
+}
+
+function calculateRoutingEconomics({
+  selectedProvider,
+  cheapestAlternative,
+  mostExpensiveAlternative
+}) {
+  const selectedCost = Number(selectedProvider?.estimated_cost || 0);
+  const cheapestCost = Number(cheapestAlternative?.estimated_cost || 0);
+  const mostExpensiveCost = Number(
+    mostExpensiveAlternative?.estimated_cost || 0
+  );
+
+  const estimatedSavingVsExpensive = Math.max(
+    0,
+    mostExpensiveCost - selectedCost
+  );
+
+  const extraCostForQuality = Math.max(
+    0,
+    selectedCost - cheapestCost
+  );
+
+  return {
+    selected_estimated_cost: Number(selectedCost.toFixed(8)),
+    estimated_saving_if_cheaper: Number(
+      estimatedSavingVsExpensive.toFixed(8)
+    ),
+    extra_cost_for_quality: Number(extraCostForQuality.toFixed(8))
+  };
+}
+
 function getProviderBFromScoring(scoring = []) {
   return scoring.find((providerScore) => {
     return String(providerScore.provider_id) === "provider-b";
@@ -676,6 +723,16 @@ async function chooseProvider({ consumer, budgetStatus, messages }) {
     }
 
     const cheapestAlternative = getCheapestAlternative(providers, analysis);
+    const mostExpensiveAlternative = getMostExpensiveAlternative(
+    providers,
+    analysis
+    );
+
+    const routingEconomics = calculateRoutingEconomics({
+      selectedProvider: cheapestAlternative,
+      cheapestAlternative,
+      mostExpensiveAlternative
+    });
 
     return {
       action: "route",
@@ -685,8 +742,10 @@ async function chooseProvider({ consumer, budgetStatus, messages }) {
       reason: "Presupuesto superado; se degrada al modelo más barato",
       analysis,
       scoring: [],
-      cheapest_alternative: cheapestAlternative
-    };
+      cheapest_alternative: cheapestAlternative,
+      most_expensive_alternative: mostExpensiveAlternative,
+      ...routingEconomics
+    };   
   }
 
   /**
@@ -717,6 +776,16 @@ async function chooseProvider({ consumer, budgetStatus, messages }) {
       : scoring[0];
 
   const cheapestAlternative = getCheapestAlternative(providers, analysis);
+  const mostExpensiveAlternative = getMostExpensiveAlternative(
+    providers,
+    analysis
+  );
+
+  const routingEconomics = calculateRoutingEconomics({
+    selectedProvider,
+    cheapestAlternative,
+    mostExpensiveAlternative
+  });
 
   return {
     action: "route",
@@ -731,7 +800,9 @@ async function chooseProvider({ consumer, budgetStatus, messages }) {
     ),
     analysis,
     scoring,
-    cheapest_alternative: cheapestAlternative
+    cheapest_alternative: cheapestAlternative,
+    most_expensive_alternative: mostExpensiveAlternative,
+    ...routingEconomics
   };
 }
 
