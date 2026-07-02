@@ -2,6 +2,11 @@ const AiRequest = require("../models/AiRequest");
 const Alert = require("../models/Alert");
 const Consumer = require("../models/Consumer");
 
+const {
+  getCostRecommendations
+} = require("../services/recommendation.service");
+
+
 const FORECAST_STATUSES = ["success", "cache_hit"];
 
 function roundNumber(value, decimals = 8) {
@@ -704,9 +709,27 @@ async function markAlertAsRead(req, res) {
   }
 }
 
+async function getRecommendations(req, res) {
+  try {
+    const lookbackDays = Number(req.query.lookbackDays) || 14;
+
+    const result = await getCostRecommendations({
+      lookbackDays
+    });
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({
+      error: "Error generando recomendaciones",
+      details: error.message
+    });
+  }
+}
+
 module.exports = {
   getOverview,
   getForecast,
+  getRecommendations,
   getRequests,
   getConsumers,
   getAlerts,
