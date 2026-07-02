@@ -468,9 +468,14 @@ routing: {
   reason,
   selected_provider_id: selectedProviderId,
   scoring: routingDecision.scoring || [],
-  cheapest_alternative: routingDecision.cheapest_alternative || null
+  cheapest_alternative: routingDecision.cheapest_alternative || null,
+  most_expensive_alternative: routingDecision.most_expensive_alternative || null,
+  selected_estimated_cost: routingDecision.selected_estimated_cost || 0,
+  estimated_saving_if_cheaper: routingDecision.estimated_saving_if_cheaper || 0,
+  extra_cost_for_quality: routingDecision.extra_cost_for_quality || 0
 },
-      latency_ms: providerResult.latencyMs
+quality_evaluation: qualityEvaluation,
+latency_ms: providerResult.latencyMs
     });
 
     /**
@@ -499,6 +504,11 @@ routing: {
   analysis: routingDecision.analysis,
   scoring: routingDecision.scoring || [],
   cheapest_alternative: routingDecision.cheapest_alternative || null,
+  most_expensive_alternative: routingDecision.most_expensive_alternative || null,
+  selected_estimated_cost: routingDecision.selected_estimated_cost || 0,
+  estimated_saving_if_cheaper: routingDecision.estimated_saving_if_cheaper || 0,
+  extra_cost_for_quality: routingDecision.extra_cost_for_quality || 0,
+  quality_evaluation: qualityEvaluation,
   cost,
   budget: {
     spend_before: budgetStatus.currentSpend,
