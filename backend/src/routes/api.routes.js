@@ -4,6 +4,7 @@ const router = express.Router();
 const {
   getOverview,
   getForecast,
+  getRecommendations,
   getRequests,
   getConsumers,
   getAlerts,
@@ -13,6 +14,7 @@ const {
 
 router.get("/dashboard/overview", getOverview);
 router.get("/dashboard/forecast", getForecast);
+router.get("/recommendations", getRecommendations);
 router.get("/requests", getRequests);
 router.get("/consumers", getConsumers);
 router.get("/alerts", getAlerts);
