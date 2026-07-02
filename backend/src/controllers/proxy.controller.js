@@ -5,6 +5,11 @@ const { chooseProvider } = require("../services/routing.service");
 
 const { callProvider } = require("../services/provider.service");
 const { calculateCost } = require("../services/cost.service");
+
+const {
+  evaluateResponseQuality
+} = require("../services/quality.service");
+
 const {
   getBudgetStatus,
   createBudgetAlertIfNeeded
